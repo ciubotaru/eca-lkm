@@ -1,0 +1,41 @@
+eca-lkm
+=======
+
+eca-lkm is a Linux kernel module (LKM) that provides a pseudo-random number
+generator (PRNG) based on an elementary cellular automaton (ECA) that
+follows Wolfram's Rule 30.
+
+Installation
+------------
+
+Building a kernel module requires properly configures kernel source and headers.
+To compile eca-lkm from source code:
+
+$ make
+
+To install the newly-built module into the module tree:
+
+$ make modules_install
+
+To load the installed module:
+
+$ modprobe eca30
+
+or, alternatively, to load it from the source tree:
+
+$ insmod eca30.ko
+
+This will create a new character device, /dev/eca30.
+
+Usage
+-----
+
+Reading from /dev/eca30 produces random numbers. Writing to /dev/eca30 changes
+the internal state of ECA ("random pool").
+
+Licensing
+---------
+
+eca-lkm is free software, and is released under the terms of the GNU General 
+Public License version 2 or any later version.
+
