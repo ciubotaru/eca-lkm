@@ -73,14 +73,14 @@ static void rule30(void) {
 		o[i] = pool[i] | r[i];
 		pool[i] = l[i] ^ o[i];
 	}
-	if (pool_valid() != 1) {
-		printk(KERN_INFO "eca30: Pool drained. Refilling...\n");
-		get_random_bytes(pool, POOL_SIZE_BYTES);
-	}
 }
 
 static void get_rand(unsigned char *buffer, const size_t len) {
 	int i;
+	if (pool_valid() != 1) {
+		printk(KERN_INFO "eca30: Pool drained. Refilling...\n");
+		get_random_bytes(pool, POOL_SIZE_BYTES);
+	}
 	for (i = 0; i < len * 8; i++) {
 		/** requires a zeroed out buffer, so no 'else' **/
 		if (pool[0] & 1UL) buffer[i/8] |= (pool[0] & 1UL) << (i % 8);
@@ -98,7 +98,7 @@ static struct file_operations fops =
 };
 
 static int __init eca30_init(void){
-	int i;
+//	int i;
 	printk(KERN_INFO "eca30: Initializing...\n");
 	majorNumber = register_chrdev(0, DEVICE_NAME, &fops);
 	if (majorNumber < 0) {
@@ -125,7 +125,7 @@ static int __init eca30_init(void){
 	printk(KERN_INFO "eca30: device created correctly\n");
 
 //	pool[0] = 1UL;
-	for (i = 0; i < POOL_SIZE_BITS; i++) rule30();
+//	for (i = 0; i < POOL_SIZE_BITS; i++) rule30();
 	return 0;
 }
 
