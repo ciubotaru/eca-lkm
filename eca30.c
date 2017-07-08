@@ -29,55 +29,53 @@ static struct class* ecaClass = NULL;
 static struct device* ecaDevice = NULL;
 
 #define POOL_SIZE_BITS 257
-#define POOL_SIZE_LONGS ((POOL_SIZE_BITS - 1) / (sizeof(unsigned long) * 8) + 1)
+#define POOL_SIZE_BYTES ((POOL_SIZE_BITS - 1) / sizeof(unsigned long) + 1)
+#define POOL_SIZE_LONGS ((POOL_SIZE_BITS - 1) / BITS_PER_LONG + 1)
 #define RULE30_BLOCK_SIZE 64
+#define ENTRY_BIT (POOL_SIZE_BITS / 2)
+#define ENTRY_LONG ((ENTRY_BIT - 1) / (sizeof(unsigned long) * 8) + 1)
 
 static unsigned long pool[POOL_SIZE_LONGS] = {0};
 static unsigned long r[POOL_SIZE_LONGS] = {0};
 static unsigned long l[POOL_SIZE_LONGS] = {0};
 static unsigned long o[POOL_SIZE_LONGS] = {0};
-static unsigned long x[POOL_SIZE_LONGS] = {0};
+static __u8 tmp[RULE30_BLOCK_SIZE] = {0};
 
-static unsigned char pool_valid(void) {
+inline static unsigned char pool_valid(void) {
 	int i;
 	for (i = 0; i < POOL_SIZE_LONGS; i++) if (pool[i]) return 1;
 	return 0;
 }
 
-static void right(void) {
+inline static void right(void) {
 	int i;
-	for (i = 0; i < POOL_SIZE_LONGS; i++) r[i] = (pool[i] >> 1);
-	for (i = 1; i < POOL_SIZE_LONGS; i++) r[i-1] |= ((pool[i] & 1UL) << (sizeof(unsigned long) * 8 - 1));
-	r[POOL_SIZE_LONGS - 1] |= (pool[0] & 1UL) << ((POOL_SIZE_BITS % (sizeof(unsigned long) * 8)) - 1);
+	for (i = 0; i < POOL_SIZE_LONGS; i++) r[i] = pool[i] >> 1;
+	for (i = 1; i < POOL_SIZE_LONGS; i++) r[i-1] |= (pool[i] & 1UL) << (BITS_PER_LONG - 1);
+	r[POOL_SIZE_LONGS - 1] |= (pool[0] & 1UL) << ((POOL_SIZE_BITS - 1) % BITS_PER_LONG);
 }
 
-static void left(void) {
+inline static void left(void) {
 	int i;
 	for (i = 0; i < POOL_SIZE_LONGS; i++) l[i] = (pool[i] << 1);
-	for (i = 1; i < POOL_SIZE_LONGS; i++) l[i] |= ((pool[i - 1] & (1UL << (sizeof(unsigned long) * 8 - 1))) >> (sizeof(unsigned long) * 8 - 1UL));
-	l[0] |= (pool[POOL_SIZE_LONGS-1] << (POOL_SIZE_BITS % (sizeof(unsigned long) * 8) - 1)) & 1UL;
-}
-
-static void or(const unsigned long *input1, const unsigned long *input2, unsigned long *output) {
-	int i;
-	for (i = 0; i < POOL_SIZE_LONGS; i++) output[i] = input1[i] | input2[i];
-}
-
-static void xor(const unsigned long *input1, const unsigned long *input2, unsigned long *output) {
-	int i;
-	for (i = 0; i < POOL_SIZE_LONGS; i++) output[i] = input1[i] ^ input2[i];
+	for (i = 1; i < POOL_SIZE_LONGS; i++) l[i] |= (pool[i - 1] >> (BITS_PER_LONG - 1)) & 1UL;
+	l[0] |= (pool[POOL_SIZE_LONGS-1] >> ((POOL_SIZE_BITS - 1) % BITS_PER_LONG)) & 1UL;
 }
 
 static void rule30(void) {
 	int i;
 	right();
 	left();
-	or(pool, r, o);
-	xor(l, o, x);
-	for (i = 0; i < POOL_SIZE_LONGS; i++) pool[i] = x[i];
+/**
+	__bitmap_shift_right(r, pool, 1, POOL_SIZE_BITS);
+	__bitmap_shift_left(l, pool, 1, POOL_SIZE_BITS);
+**/
+	for (i = 0; i < POOL_SIZE_LONGS; i++) {
+		o[i] = pool[i] | r[i];
+		pool[i] = l[i] ^ o[i];
+	}
 	if (pool_valid() != 1) {
 		printk(KERN_INFO "eca30: Pool drained. Refilling...\n");
-		get_random_bytes(pool, (POOL_SIZE_BITS - 1 ) / 8 + 1);
+		get_random_bytes(pool, POOL_SIZE_BYTES);
 	}
 }
 
@@ -91,10 +89,12 @@ static void get_rand(unsigned char *buffer, const size_t len) {
 }
 
 static ssize_t dev_read(struct file *, char *, size_t, loff_t *);
+static ssize_t dev_write(struct file *, const char *, size_t, loff_t *);
 
 static struct file_operations fops =
 {
-   .read = dev_read,
+	.read = dev_read,
+	.write = dev_write,
 };
 
 static int __init eca30_init(void){
@@ -124,12 +124,12 @@ static int __init eca30_init(void){
 	}
 	printk(KERN_INFO "eca30: device created correctly\n");
 
-	pool[0] = 1UL;
+//	pool[0] = 1UL;
 	for (i = 0; i < POOL_SIZE_BITS; i++) rule30();
 	return 0;
 }
 
-static void __exit eca30_exit(void){
+static void __exit eca30_exit(void) {
 	device_destroy(ecaClass, MKDEV(majorNumber, 0));
 	class_unregister(ecaClass);
    class_destroy(ecaClass);
@@ -137,22 +137,36 @@ static void __exit eca30_exit(void){
    printk(KERN_INFO "eca30: Unloading...\n");
 }
 
-static ssize_t dev_read(struct file *filep, char *buffer, size_t len, loff_t *offset){
+static ssize_t dev_read(struct file *filep, char *buffer, size_t len, loff_t *offset) {
 	ssize_t ret = 0, i = RULE30_BLOCK_SIZE, j = 0;
-	__u8 tmp[RULE30_BLOCK_SIZE] = {0};
 
 	while (len) {
-		get_rand(tmp, RULE30_BLOCK_SIZE);
+//		get_rand(tmp, RULE30_BLOCK_SIZE);
 		i = (len < RULE30_BLOCK_SIZE) ? len : RULE30_BLOCK_SIZE;
+		get_rand(tmp, i);
 		if (copy_to_user(buffer, tmp, i)) {
 			ret = -EFAULT;
 			break;
 		}
-
 		len -= i;
 		buffer += i;
 		ret += i;
-		for (j = 0; j < RULE30_BLOCK_SIZE; j++) tmp[j] = 0;
+		for (j = 0; j < i; j++) tmp[j] = 0;
+	}
+	return ret;
+}
+
+static ssize_t dev_write(struct file *filep, const char *buffer, size_t len, loff_t *offset) {
+	int i;
+	ssize_t ret = 0;
+	while (len) {
+		for (i = 0; i < 8; i++) {
+			if (buffer[ret] >> i & 1) pool[ENTRY_LONG] |= (unsigned int) buffer[ret] >> i & 1UL;
+			else pool[ENTRY_LONG] &= ~((unsigned int) buffer[ret] >> i & 1UL);
+			rule30();
+		}
+		ret++;
+		len--;
 	}
 	return ret;
 }

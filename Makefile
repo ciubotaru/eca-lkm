@@ -1,3 +1,4 @@
+ccflags-y=-O3
 obj-m+=eca30.o
 KERNEL_BUILD  := /lib/modules/$(shell uname -r)/build
 
