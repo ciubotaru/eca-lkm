@@ -13,7 +13,7 @@ To compile eca-lkm from source code:
 
 $ make
 
-To install the newly-built module into the module tree:
+To install the newly-built module into the module tree (will need root privileges, e.g. with 'sudo -E'):
 
 $ make modules_install
 
