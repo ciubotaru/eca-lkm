@@ -27,6 +27,27 @@ $ insmod eca30.ko
 
 This will create a new character device, /dev/eca30.
 
+udev
+----
+
+To have a device with proper attributes created under /dev when your module
+is loaded, copy the file named 99-eca30.rules to /etc/udev/rules.d
+
+$ mkdir -p /etc/udev/rules.d
+
+$ cp 99-eca30.rules /etc/udev/rules.d
+
+dkms
+----
+
+To have your module automatically rebuilt with every kernel update, you can
+install DKMS and use it to manage your module.
+
+Under /usr/src create a directory named eca30-0.0.1 and copy the source files
+into it. Then install the module:
+
+$ dkms install -m eca30 -v 0.0.1
+
 Usage
 -----
 
